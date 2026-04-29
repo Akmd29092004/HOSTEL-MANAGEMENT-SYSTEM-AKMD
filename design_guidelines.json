@@ -1,0 +1,81 @@
+{
+  "theme": {
+    "archetype": "4_Swiss_High_Contrast",
+    "mode": "light",
+    "description": "Professional dashboard with dark sidebar and light content. Avoids purple/violet. Fresh and authoritative.",
+    "colors": {
+      "light": {
+        "primary": "226 71% 40%",
+        "primary-foreground": "0 0% 100%",
+        "background": "210 40% 98%",
+        "foreground": "222 47% 11%",
+        "card": "0 0% 100%",
+        "card-foreground": "222 47% 11%",
+        "popover": "0 0% 100%",
+        "popover-foreground": "222 47% 11%",
+        "secondary": "214 32% 91%",
+        "secondary-foreground": "222 47% 11%",
+        "muted": "210 40% 96%",
+        "muted-foreground": "215 16% 47%",
+        "accent": "214 32% 91%",
+        "accent-foreground": "222 47% 11%",
+        "destructive": "0 84% 60%",
+        "destructive-foreground": "0 0% 100%",
+        "border": "214 32% 91%",
+        "input": "214 32% 91%",
+        "ring": "226 71% 40%",
+        "sidebar": "222 47% 11%",
+        "sidebar-foreground": "210 40% 98%",
+        "sidebar-border": "222 47% 11%",
+        "sidebar-accent": "215 28% 17%",
+        "sidebar-accent-foreground": "210 40% 98%"
+      }
+    }
+  },
+  "typography": {
+    "headings": {
+      "fontFamily": "Outfit, sans-serif",
+      "weights": ["500", "700", "900"],
+      "usage": "Use tight tracking (tracking-tight) for H1/H2."
+    },
+    "body": {
+      "fontFamily": "IBM Plex Sans, sans-serif",
+      "weights": ["400", "500", "600"],
+      "usage": "Use for all body text, tables, and form inputs."
+    }
+  },
+  "layout": {
+    "spacing_system": "Generous spacing. Use p-6 to p-8 for cards and containers.",
+    "bento_grid": "For dashboard: md:grid-cols-3 or md:grid-cols-4 with gap-6.",
+    "sidebar": "Fixed 250px width (or responsive), bg-sidebar text-sidebar-foreground. Active link gets bg-sidebar-accent and border-l-4 border-primary."
+  },
+  "components": {
+    "buttons": "Rounded-md, no heavy shadows. Primary buttons use bg-primary.",
+    "cards": "Cardless or flat cards with 1px border-border and subtle shadow-sm. Max rounded-lg.",
+    "tables": "Clean, left-aligned headers. Use Shadcn Table component. Striped or simple bottom border.",
+    "forms": "Use Shadcn Form, Input, Select. Place forms in Modals/Sheets for adding entities.",
+    "icons": "lucide-react for all icons."
+  },
+  "media": {
+    "image_urls": [
+      {
+        "category": "login_hero",
+        "url": "https://images.unsplash.com/photo-1564273795917-fe399b763988?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzV8MHwxfHNlYXJjaHwzfHxzdHVkZW50JTIwZG9ybSUyMHJvb218ZW58MHx8fHwxNzc3NDc3NDQxfDA&ixlib=rb-4.1.0&q=85",
+        "description": "Well-lit modern dorm room, use as a 50% split hero image on the login page.",
+        "usage": "Apply a subtle bg-black/30 overlay if text is placed on it, but preferably place the login form on the solid color half."
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Create a JWT-based custom auth system (email/password).",
+    "Implement 3 roles: admin, staff, student. The login page should have role tabs.",
+    "Sidebar navigation for Admin: Dashboard, Students, Rooms, Fees, Staff, Attendance, Complaints, Hostel Food.",
+    "Sidebar navigation for Staff: Dashboard, Students, Rooms, Attendance, Complaints, Hostel Food.",
+    "Sidebar navigation for Student: Dashboard, My Profile, My Room, My Fees, My Attendance, Complaints, Hostel Food.",
+    "Use dark sidebar (bg-sidebar) with light content area (bg-background).",
+    "Avoid all purple/violet colors.",
+    "Hostel Food menu must be a weekly grid (Mon-Sun x Breakfast/Lunch/Dinner) editable by Staff/Admin.",
+    "Use Outfit for headings and IBM Plex Sans for body. Add these fonts via Google Fonts.",
+    "Add data-testid attributes to all interactive and key informational elements."
+  ]
+}
