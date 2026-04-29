@@ -1,4 +1,6 @@
-import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import {
+  createContext, useContext, useEffect, useState, useCallback, useMemo,
+} from "react";
 import api from "../lib/api";
 
 const AuthContext = createContext(null);
@@ -22,26 +24,30 @@ export function AuthProvider({ children }) {
     fetchMe();
   }, [fetchMe]);
 
-  const login = async (email, password) => {
+  const login = useCallback(async (email, password) => {
     const { data } = await api.post("/auth/login", { email, password });
     localStorage.setItem("hms_token", data.access_token);
     setUser(data.user);
     return data.user;
-  };
+  }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       await api.post("/auth/logout");
-    } catch {}
+    } catch (err) {
+      // Logout is best-effort; ignore network/server errors.
+      console.warn("logout request failed", err);
+    }
     localStorage.removeItem("hms_token");
     setUser(null);
-  };
+  }, []);
 
-  return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refresh: fetchMe }}>
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({ user, loading, login, logout, refresh: fetchMe }),
+    [user, loading, login, logout, fetchMe]
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export const useAuth = () => useContext(AuthContext);

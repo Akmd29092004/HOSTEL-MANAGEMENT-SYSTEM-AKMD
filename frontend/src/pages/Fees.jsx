@@ -18,6 +18,9 @@ import {
 import { Plus, CheckCircle2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
+const MS_PER_DAY = 86400000;
+const DEFAULT_DUE_DAYS = 14;
+
 export default function Fees() {
   const [rows, setRows] = useState([]);
   const [students, setStudents] = useState([]);
@@ -27,7 +30,7 @@ export default function Fees() {
     student_id: "",
     month: new Date().toISOString().slice(0, 7),
     amount: 5000,
-    due_date: new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10),
+    due_date: new Date(Date.now() + DEFAULT_DUE_DAYS * MS_PER_DAY).toISOString().slice(0, 10),
   });
 
   const load = () =>

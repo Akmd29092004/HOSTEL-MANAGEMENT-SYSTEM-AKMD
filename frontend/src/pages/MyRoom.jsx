@@ -50,9 +50,9 @@ export default function MyRoom() {
             <span className="text-sm font-medium">Roommates</span>
           </div>
           <div className="space-y-2">
-            {(r.occupant_details || []).map((o, i) => (
+            {(r.occupant_details || []).map((o) => (
               <div
-                key={i}
+                key={o.roll_no || o.name}
                 className="flex justify-between items-center px-3 py-2 rounded-md bg-muted/40 text-sm"
               >
                 <span>{o.name}</span>
