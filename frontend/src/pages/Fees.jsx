@@ -15,7 +15,7 @@ import { Badge } from "../components/ui/badge";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "../components/ui/select";
-import { Plus, CheckCircle2, Trash2 } from "lucide-react";
+import { Plus, CheckCircle2, Trash2, FileDown } from "lucide-react";
 import { toast } from "sonner";
 
 const MS_PER_DAY = 86400000;
@@ -72,6 +72,22 @@ export default function Fees() {
     await api.delete(`/fees/${id}`);
     toast.success("Deleted");
     load();
+  };
+
+  const downloadReceipt = async (id) => {
+    try {
+      const res = await api.get(`/payments/receipt/${id}.pdf`, { responseType: "blob" });
+      const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `receipt-${id.slice(0, 8)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Could not download receipt");
+    }
   };
 
   return (
@@ -218,6 +234,16 @@ export default function Fees() {
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right">
+                  {f.status === "paid" && (
+                    <Button
+                      variant="ghost" size="icon"
+                      onClick={() => downloadReceipt(f.id)}
+                      title="Download receipt"
+                      data-testid={`receipt-fee-${f.id}`}
+                    >
+                      <FileDown className="size-4 text-primary" />
+                    </Button>
+                  )}
                   {f.status !== "paid" && (
                     <Button
                       size="sm" variant="outline"

@@ -28,6 +28,11 @@
 - Project Report PDF generated on-the-fly at `/api/project-report.pdf`.
 - 34/34 backend tests passing; frontend E2E flows verified.
 
+## Implemented (2026-04-29)
+- **Online fee payments via Razorpay** (test mode). Student clicks *Pay now* on a pending fee → backend creates a Razorpay order → hosted Razorpay Checkout opens → on success, backend verifies the HMAC-SHA256 signature, marks the fee as paid, stores a `payments` record.
+- **PDF receipts** at `/api/payments/receipt/{fee_id}.pdf` (student can download own; admin can download any). Receipt includes student details, payment ID, order ID, amount and date.
+- Smoke-tested live with Razorpay test API: order creation, valid-signature verify (200), invalid-signature verify (400), receipt generation (`%PDF-` confirmed).
+
 ## Backlog (P1/P2)
 - P1: File uploads for student ID-card photos.
 - P1: Receipts (PDF) for paid fees.

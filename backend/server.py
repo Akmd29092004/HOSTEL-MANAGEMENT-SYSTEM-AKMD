@@ -7,9 +7,12 @@ load_dotenv(ROOT_DIR / ".env")
 import os
 import io
 import uuid
+import hmac
+import hashlib
 import logging
 import bcrypt
 import jwt
+import razorpay
 from datetime import datetime, timezone, timedelta, date as date_cls
 from typing import List, Optional, Literal
 
@@ -28,6 +31,16 @@ MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.environ["DB_NAME"]
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
+
+# ---------------- Razorpay ----------------
+RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
+RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
+razorpay_client = (
+    razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+    if RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET
+    else None
+)
+
 
 # ---------------- Auth utils ----------------
 JWT_ALGO = "HS256"
@@ -893,6 +906,255 @@ async def project_report():
         buf,
         media_type="application/pdf",
         headers={"Content-Disposition": 'attachment; filename="Hostel_Management_System_Report.pdf"'},
+    )
+
+
+# ---------------- Razorpay Payments ----------------
+class PayOrderIn(BaseModel):
+    fee_id: str
+
+
+@api.get("/payments/config")
+async def payments_config(_: dict = Depends(get_current_user)):
+    return {"key_id": RAZORPAY_KEY_ID, "enabled": bool(razorpay_client)}
+
+
+@api.post("/payments/order")
+async def create_payment_order(body: PayOrderIn, user: dict = Depends(require_roles("student"))):
+    if not razorpay_client:
+        raise HTTPException(503, "Payment gateway not configured")
+    student = await db.students.find_one({"user_id": user["id"]})
+    if not student:
+        raise HTTPException(404, "Student profile not found")
+    fee = await db.fees.find_one({"id": body.fee_id, "student_id": student["id"]})
+    if not fee:
+        raise HTTPException(404, "Fee not found")
+    if fee["status"] == "paid":
+        raise HTTPException(400, "Fee already paid")
+    amount_paise = int(round(float(fee["amount"]) * 100))
+    receipt_id = f"hms-{fee['id'][:18]}"
+    order = razorpay_client.order.create({
+        "amount": amount_paise,
+        "currency": "INR",
+        "receipt": receipt_id,
+        "payment_capture": 1,
+        "notes": {
+            "fee_id": fee["id"],
+            "student_id": student["id"],
+            "roll_no": student.get("roll_no", ""),
+            "month": fee["month"],
+        },
+    })
+    await db.fees.update_one(
+        {"id": fee["id"]},
+        {"$set": {"razorpay_order_id": order["id"], "status": "processing"}},
+    )
+    return {
+        "order_id": order["id"],
+        "amount": order["amount"],
+        "currency": order["currency"],
+        "key_id": RAZORPAY_KEY_ID,
+        "name": student["name"],
+        "email": student["email"],
+        "phone": student.get("phone", ""),
+        "fee_id": fee["id"],
+        "month": fee["month"],
+    }
+
+
+class PayVerifyIn(BaseModel):
+    fee_id: str
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+
+
+@api.post("/payments/verify")
+async def verify_payment(body: PayVerifyIn, user: dict = Depends(require_roles("student"))):
+    if not razorpay_client:
+        raise HTTPException(503, "Payment gateway not configured")
+    student = await db.students.find_one({"user_id": user["id"]})
+    if not student:
+        raise HTTPException(404, "Student profile not found")
+    fee = await db.fees.find_one({"id": body.fee_id, "student_id": student["id"]})
+    if not fee:
+        raise HTTPException(404, "Fee not found")
+
+    # HMAC-SHA256 signature verification
+    msg = f"{body.razorpay_order_id}|{body.razorpay_payment_id}".encode()
+    expected = hmac.new(
+        RAZORPAY_KEY_SECRET.encode(), msg, hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(expected, body.razorpay_signature):
+        await db.fees.update_one(
+            {"id": fee["id"]}, {"$set": {"status": "pending"}}
+        )
+        raise HTTPException(400, "Invalid payment signature")
+
+    paid_at = now_iso()
+    payment = {
+        "id": str(uuid.uuid4()),
+        "fee_id": fee["id"],
+        "student_id": student["id"],
+        "student_name": student["name"],
+        "roll_no": student.get("roll_no", ""),
+        "amount": fee["amount"],
+        "month": fee["month"],
+        "razorpay_order_id": body.razorpay_order_id,
+        "razorpay_payment_id": body.razorpay_payment_id,
+        "razorpay_signature": body.razorpay_signature,
+        "paid_at": paid_at,
+    }
+    await db.payments.insert_one(payment)
+    await db.fees.update_one(
+        {"id": fee["id"]},
+        {
+            "$set": {
+                "status": "paid",
+                "paid_date": paid_at,
+                "payment_id": payment["id"],
+                "razorpay_payment_id": body.razorpay_payment_id,
+            }
+        },
+    )
+    payment.pop("_id", None)
+    return {"ok": True, "payment": payment}
+
+
+@api.get("/payments/receipt/{fee_id}.pdf")
+async def payment_receipt(fee_id: str, user: dict = Depends(get_current_user)):
+    fee = await db.fees.find_one({"id": fee_id}, {"_id": 0})
+    if not fee:
+        raise HTTPException(404, "Fee not found")
+    if fee.get("status") != "paid":
+        raise HTTPException(400, "Fee not paid yet")
+
+    # Access control: student can only download their own
+    if user["role"] == "student":
+        s = await db.students.find_one({"user_id": user["id"]})
+        if not s or s["id"] != fee["student_id"]:
+            raise HTTPException(403, "Forbidden")
+
+    student = await db.students.find_one({"id": fee["student_id"]}, {"_id": 0}) or {}
+    payment = (
+        await db.payments.find_one({"fee_id": fee_id}, {"_id": 0})
+        if fee.get("payment_id")
+        else None
+    )
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.lib import colors
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+    )
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=2 * cm, rightMargin=2 * cm,
+        topMargin=2 * cm, bottomMargin=2 * cm,
+        title=f"Receipt {fee_id[:8]}",
+    )
+    styles = getSampleStyleSheet()
+    h_brand = ParagraphStyle(
+        "Brand", parent=styles["Title"], fontSize=22, alignment=0,
+        textColor=colors.HexColor("#1f3a93"), spaceAfter=4,
+    )
+    h_sub = ParagraphStyle("Sub", parent=styles["Normal"], fontSize=10,
+                           textColor=colors.grey, spaceAfter=14)
+    h_section = ParagraphStyle(
+        "Sec", parent=styles["Heading2"], fontSize=12,
+        textColor=colors.HexColor("#1f3a93"), spaceAfter=6,
+    )
+    body = ParagraphStyle("Body", parent=styles["BodyText"], fontSize=11, leading=15)
+
+    story = [
+        Paragraph("Hostel Management System", h_brand),
+        Paragraph("Official Fee Payment Receipt", h_sub),
+    ]
+
+    receipt_no = (payment or {}).get("id", fee_id)[:8].upper()
+    paid_at = (payment or {}).get("paid_at") or fee.get("paid_date") or now_iso()
+    try:
+        paid_str = datetime.fromisoformat(paid_at).strftime("%d %b %Y, %I:%M %p")
+    except Exception:
+        paid_str = paid_at
+
+    meta = [
+        ["Receipt No.", f"HMS-{receipt_no}"],
+        ["Payment Date", paid_str],
+        ["Payment ID", (payment or {}).get("razorpay_payment_id", "—")],
+        ["Order ID", (payment or {}).get("razorpay_order_id", "—")],
+    ]
+    t1 = Table(meta, colWidths=[4.5 * cm, 11 * cm])
+    t1.setStyle(TableStyle([
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#475569")),
+        ("FONTNAME", (1, 0), (1, -1), "Helvetica-Bold"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.3, colors.lightgrey),
+    ]))
+    story += [t1, Spacer(1, 0.6 * cm), Paragraph("Billed to", h_section)]
+
+    bill = [
+        ["Name", student.get("name", "—")],
+        ["Roll No.", student.get("roll_no", "—")],
+        ["Course / Year", f"{student.get('course', '—')} · Year {student.get('year', '—')}"],
+        ["Email", student.get("email", "—")],
+        ["Room", student.get("room_no") or "—"],
+    ]
+    t2 = Table(bill, colWidths=[4.5 * cm, 11 * cm])
+    t2.setStyle(TableStyle([
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#475569")),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    story += [t2, Spacer(1, 0.6 * cm), Paragraph("Payment details", h_section)]
+
+    items = [
+        ["Description", "Month", "Amount"],
+        [f"Hostel Fee — {student.get('name', '')}", fee["month"],
+         f"INR {float(fee['amount']):,.2f}"],
+        ["", "Total Paid", f"INR {float(fee['amount']):,.2f}"],
+    ]
+    t3 = Table(items, colWidths=[9 * cm, 3.5 * cm, 3 * cm])
+    t3.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f3a93")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("ALIGN", (2, 0), (2, -1), "RIGHT"),
+        ("ALIGN", (1, 1), (1, -1), "CENTER"),
+        ("LINEABOVE", (0, -1), (-1, -1), 0.6, colors.HexColor("#1f3a93")),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    story += [
+        t3, Spacer(1, 1 * cm),
+        Paragraph(
+            "<font color='#16a34a'><b>Payment received successfully.</b></font> "
+            "This is a system-generated receipt and does not require a physical signature.",
+            body,
+        ),
+        Spacer(1, 0.3 * cm),
+        Paragraph(
+            "<font color='grey' size='9'>For any queries, contact the hostel office.</font>",
+            body,
+        ),
+    ]
+    doc.build(story)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="receipt-{receipt_no}.pdf"',
+        },
     )
 
 
