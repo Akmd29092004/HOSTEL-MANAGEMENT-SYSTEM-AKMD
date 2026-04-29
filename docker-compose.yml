@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: hostel-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin123
+      MONGO_INITDB_DATABASE: hostel_db
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    networks:
+      - hostel-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: hostel-backend
+    ports:
+      - "8000:8000"
+    environment:
+      MONGO_URL: mongodb://admin:admin123@mongodb:27017/hostel_db?authSource=admin
+      DB_NAME: hostel_db
+      JWT_SECRET: your-super-secure-jwt-secret-key-minimum-32-characters-required
+      ADMIN_EMAIL: admin@hostel.edu
+      ADMIN_PASSWORD: admin123
+      CORS_ORIGINS: "http://localhost:3000,http://localhost:5173,https://yourdomain.com"
+      RAZORPAY_KEY_ID: ""
+      RAZORPAY_KEY_SECRET: ""
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - hostel-network
+    volumes:
+      - ./backend:/app
+    command: uvicorn server:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
+
+  # React Frontend (Development)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: hostel-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      REACT_APP_API_URL: http://localhost:8000/api
+      REACT_APP_RAZORPAY_KEY_ID: ""
+    depends_on:
+      - backend
+    networks:
+      - hostel-network
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:
+    driver: local
+  mongodb_config:
+    driver: local
+
+networks:
+  hostel-network:
+    driver: bridge
