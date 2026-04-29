@@ -18,6 +18,11 @@ import MyRoom from "./pages/MyRoom";
 import MyFees from "./pages/MyFees";
 import MyAttendance from "./pages/MyAttendance";
 
+const ADMIN_ROLES = ["admin"];
+const STAFF_ROLES = ["staff"];
+const STUDENT_ROLES = ["student"];
+
+
 function RoleHome() {
   const { user, loading } = useAuth();
   if (loading)
@@ -42,7 +47,7 @@ function App() {
           <Route
             path="/admin"
             element={
-              <ProtectedRoute roles={["admin"]}>
+              <ProtectedRoute roles={ADMIN_ROLES}>
                 <Layout />
               </ProtectedRoute>
             }
@@ -61,7 +66,7 @@ function App() {
           <Route
             path="/staff"
             element={
-              <ProtectedRoute roles={["staff"]}>
+              <ProtectedRoute roles={STAFF_ROLES}>
                 <Layout />
               </ProtectedRoute>
             }
@@ -78,7 +83,7 @@ function App() {
           <Route
             path="/student"
             element={
-              <ProtectedRoute roles={["student"]}>
+              <ProtectedRoute roles={STUDENT_ROLES}>
                 <Layout />
               </ProtectedRoute>
             }
